@@ -3,6 +3,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/wait.h>
+#include <fcntl.h>
 
 #define MAX_LINE 80
 #define HISTORY_SIZE 10
@@ -34,10 +35,25 @@ void display_history() {
     printf("\n");
 }
 
+/* Function to check for output redirection */
+int has_output_redirection(char **args, char **output_file) {
+    for (int i = 0; args[i] != NULL; i++) {
+        if (strcmp(args[i], ">") == 0) {
+            if (args[i + 1] != NULL) {
+                *output_file = args[i + 1];
+                args[i] = NULL;  /* Remove > and filename from args */
+                return 1;
+            }
+        }
+    }
+    return 0;
+}
+
 int main(int argc, char *argv[]) {
     char *args[MAX_LINE/2 + 1];
     int should_run = 1;
     char input[MAX_LINE];
+    char input_copy[MAX_LINE];  /* For preserving original command */
     FILE *input_file = stdin;
     int batch_mode = 0;
     
@@ -70,9 +86,12 @@ int main(int argc, char *argv[]) {
             continue;
         }
         
+        /* Save original command for history */
+        strcpy(input_copy, input);
+        
         /* Add to history (except history command itself) */
         if (strcmp(input, "history") != 0) {
-            add_to_history(input);
+            add_to_history(input_copy);
         }
         
         /* Check for exit */
@@ -100,6 +119,10 @@ int main(int argc, char *argv[]) {
             continue;
         }
         
+        /* Check for output redirection */
+        char *output_file = NULL;
+        int redirect_output = has_output_redirection(args, &output_file);
+        
         /* Fork and execute */
         pid_t pid = fork();
         
@@ -107,11 +130,25 @@ int main(int argc, char *argv[]) {
             fprintf(stderr, "Fork failed\n");
             return 1;
         } else if (pid == 0) {
+            /* Child process */
+            
+            /* Handle output redirection */
+            if (redirect_output) {
+                int fd = open(output_file, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+                if (fd < 0) {
+                    fprintf(stderr, "Error: Cannot open output file '%s'\n", output_file);
+                    exit(1);
+                }
+                dup2(fd, STDOUT_FILENO);
+                close(fd);
+            }
+            
             if (execvp(args[0], args) == -1) {
                 fprintf(stderr, "Command not found: %s\n", args[0]);
             }
             exit(1);
         } else {
+            /* Parent process */
             wait(NULL);
         }
     }
