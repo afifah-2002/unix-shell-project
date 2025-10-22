@@ -1,0 +1,17 @@
+# Compiled files
+myshell
+*.o
+*.out
+a.out
+
+# Editor files
+.vscode/
+*.swp
+*~
+
+# OS files
+.DS_Store
+
+# Test files (optional - remove if you want to commit them)
+# test_output.txt
+```

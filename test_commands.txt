@@ -1,0 +1,4 @@
+ls -l
+pwd
+echo "Hello from batch mode"
+date
