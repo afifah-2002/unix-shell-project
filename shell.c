@@ -4,6 +4,7 @@
 #include <unistd.h>
 #include <sys/wait.h>
 #include <fcntl.h>
+#include <ctype.h>
 
 #define MAX_LINE 80
 #define HISTORY_SIZE 10
@@ -30,6 +31,26 @@ void display_history() {
     }
 }
 
+/* Trim leading and trailing whitespace */
+char* trim_whitespace(char *str) {
+    char *end;
+    
+    /* Trim leading space */
+    while(isspace((unsigned char)*str)) str++;
+    
+    if(*str == 0)  /* All spaces? */
+        return str;
+    
+    /* Trim trailing space */
+    end = str + strlen(str) - 1;
+    while(end > str && isspace((unsigned char)*end)) end--;
+    
+    /* Write new null terminator */
+    end[1] = '\0';
+    
+    return str;
+}
+
 int has_output_redirection(char **args, char **output_file) {
     for (int i = 0; args[i] != NULL; i++) {
         if (strcmp(args[i], ">") == 0) {
@@ -37,6 +58,9 @@ int has_output_redirection(char **args, char **output_file) {
                 *output_file = args[i + 1];
                 args[i] = NULL;
                 return 1;
+            } else {
+                fprintf(stderr, "Error: No output file specified after '>'\n");
+                return -1;  /* Error: malformed command */
             }
         }
     }
@@ -50,6 +74,9 @@ int has_input_redirection(char **args, char **input_file) {
                 *input_file = args[i + 1];
                 args[i] = NULL;
                 return 1;
+            } else {
+                fprintf(stderr, "Error: No input file specified after '<'\n");
+                return -1;  /* Error: malformed command */
             }
         }
     }
@@ -59,9 +86,20 @@ int has_input_redirection(char **args, char **input_file) {
 int has_pipe(char **args, char ***cmd1, char ***cmd2) {
     for (int i = 0; args[i] != NULL; i++) {
         if (strcmp(args[i], "|") == 0) {
+            if (args[i + 1] == NULL) {
+                fprintf(stderr, "Error: No command specified after '|'\n");
+                return -1;  /* Error: malformed command */
+            }
             args[i] = NULL;
             *cmd1 = args;
             *cmd2 = &args[i + 1];
+            
+            /* Check if cmd1 is empty */
+            if (*cmd1 == NULL || **cmd1 == NULL) {
+                fprintf(stderr, "Error: No command specified before '|'\n");
+                return -1;
+            }
+            
             return 1;
         }
     }
@@ -88,6 +126,11 @@ void execute_command(char **args) {
     int redirect_output = has_output_redirection(args, &output_file);
     int redirect_input = has_input_redirection(args, &input_file);
     
+    /* Check for malformed redirection */
+    if (redirect_output == -1 || redirect_input == -1) {
+        exit(1);
+    }
+    
     /* Handle input redirection */
     if (redirect_input) {
         int fd = open(input_file, O_RDONLY);
@@ -112,7 +155,7 @@ void execute_command(char **args) {
     
     /* Check if it's a built-in command */
     if (execute_builtin(args)) {
-        exit(0);  /* Built-in executed successfully */
+        exit(0);
     }
     
     /* Not a built-in, execute as external command */
@@ -169,7 +212,7 @@ void execute_pipe(char **cmd1, char **cmd2) {
         dup2(pipefd[0], STDIN_FILENO);
         close(pipefd[0]);
         
-        /* Second command should not be a built-in in pipes */
+        /* Execute second command */
         if (execvp(cmd2[0], cmd2) == -1) {
             fprintf(stderr, "Command not found: %s\n", cmd2[0]);
         }
@@ -181,6 +224,34 @@ void execute_pipe(char **cmd1, char **cmd2) {
     close(pipefd[1]);
     waitpid(pid1, NULL, 0);
     waitpid(pid2, NULL, 0);
+}
+
+/* BONUS FEATURE: Execute command from history */
+int execute_history_command(char *input) {
+    /* Check for !! (repeat last command) */
+    if (strcmp(input, "!!") == 0) {
+        if (history_count == 0) {
+            fprintf(stderr, "Error: No commands in history\n");
+            return -1;
+        }
+        printf("%s\n", history[history_count - 1]);
+        strcpy(input, history[history_count - 1]);
+        return 1;
+    }
+    
+    /* Check for !n (repeat command number n) */
+    if (input[0] == '!' && isdigit(input[1])) {
+        int num = atoi(&input[1]);
+        if (num < 1 || num > history_count) {
+            fprintf(stderr, "Error: No such command in history\n");
+            return -1;
+        }
+        printf("%s\n", history[num - 1]);
+        strcpy(input, history[num - 1]);
+        return 1;
+    }
+    
+    return 0;  /* Not a history command */
 }
 
 int main(int argc, char *argv[]) {
@@ -215,9 +286,12 @@ int main(int argc, char *argv[]) {
         
         input[strcspn(input, "\n")] = 0;
         
-        if (strlen(input) == 0) {
+        /* Trim whitespace */
+        char *trimmed = trim_whitespace(input);
+        if (strlen(trimmed) == 0) {
             continue;
         }
+        strcpy(input, trimmed);
         
         /* Save original command */
         strcpy(input_copy, input);
@@ -226,6 +300,16 @@ int main(int argc, char *argv[]) {
         if (strcmp(input, "exit") == 0) {
             should_run = 0;
             continue;
+        }
+        
+        /* BONUS: Check for history recall (!!, !n) */
+        int history_recall = execute_history_command(input);
+        if (history_recall == -1) {
+            continue;  /* Error in history recall */
+        }
+        if (history_recall == 1) {
+            /* Command was replaced with history command, update copy */
+            strcpy(input_copy, input);
         }
         
         /* Parse command */
@@ -244,6 +328,14 @@ int main(int argc, char *argv[]) {
         /* Check for pipe */
         char **cmd1, **cmd2;
         int is_pipe = has_pipe(args, &cmd1, &cmd2);
+        
+        /* Check for malformed pipe */
+        if (is_pipe == -1) {
+            if (batch_mode) {
+                fprintf(stderr, "Batch mode: Skipping malformed command\n");
+            }
+            continue;
+        }
         
         /* Add to history ONLY if it's not a built-in command */
         if (!is_builtin_for_history(args[0])) {
@@ -265,11 +357,18 @@ int main(int argc, char *argv[]) {
             
             if (pid < 0) {
                 fprintf(stderr, "Fork failed\n");
+                if (batch_mode) {
+                    fprintf(stderr, "Batch mode: Continuing with next command\n");
+                }
                 return 1;
             } else if (pid == 0) {
                 execute_command(args);
             } else {
-                wait(NULL);
+                int status;
+                wait(&status);
+                if (batch_mode && WIFEXITED(status) && WEXITSTATUS(status) != 0) {
+                    fprintf(stderr, "Batch mode: Command failed with exit code %d\n", WEXITSTATUS(status));
+                }
             }
         }
     }
