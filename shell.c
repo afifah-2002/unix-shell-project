@@ -25,11 +25,9 @@ void add_to_history(char *cmd) {
 }
 
 void display_history() {
-    printf("\n");
     for (int i = 0; i < history_count; i++) {
         printf("%d  %s\n", i + 1, history[i]);
     }
-    printf("\n");
 }
 
 int has_output_redirection(char **args, char **output_file) {
@@ -58,15 +56,28 @@ int has_input_redirection(char **args, char **input_file) {
     return 0;
 }
 
-/* Function to check for pipe */
 int has_pipe(char **args, char ***cmd1, char ***cmd2) {
     for (int i = 0; args[i] != NULL; i++) {
         if (strcmp(args[i], "|") == 0) {
-            args[i] = NULL;  /* Split the command at pipe */
+            args[i] = NULL;
             *cmd1 = args;
             *cmd2 = &args[i + 1];
             return 1;
         }
+    }
+    return 0;
+}
+
+/* Check if command is a built-in (for history tracking purposes) */
+int is_builtin_for_history(char *cmd) {
+    return (strcmp(cmd, "history") == 0 || strcmp(cmd, "exit") == 0);
+}
+
+/* Execute built-in commands - returns 1 if it was a builtin, 0 otherwise */
+int execute_builtin(char **args) {
+    if (strcmp(args[0], "history") == 0) {
+        display_history();
+        return 1;
     }
     return 0;
 }
@@ -99,6 +110,12 @@ void execute_command(char **args) {
         close(fd);
     }
     
+    /* Check if it's a built-in command */
+    if (execute_builtin(args)) {
+        exit(0);  /* Built-in executed successfully */
+    }
+    
+    /* Not a built-in, execute as external command */
     if (execvp(args[0], args) == -1) {
         fprintf(stderr, "Command not found: %s\n", args[0]);
     }
@@ -123,10 +140,16 @@ void execute_pipe(char **cmd1, char **cmd2) {
     
     if (pid1 == 0) {
         /* Child 1: writes to pipe */
-        close(pipefd[0]);  /* Close read end */
+        close(pipefd[0]);
         dup2(pipefd[1], STDOUT_FILENO);
         close(pipefd[1]);
         
+        /* Check if first command is built-in */
+        if (execute_builtin(cmd1)) {
+            exit(0);
+        }
+        
+        /* Not built-in, execute as external command */
         if (execvp(cmd1[0], cmd1) == -1) {
             fprintf(stderr, "Command not found: %s\n", cmd1[0]);
         }
@@ -142,10 +165,11 @@ void execute_pipe(char **cmd1, char **cmd2) {
     
     if (pid2 == 0) {
         /* Child 2: reads from pipe */
-        close(pipefd[1]);  /* Close write end */
+        close(pipefd[1]);
         dup2(pipefd[0], STDIN_FILENO);
         close(pipefd[0]);
         
+        /* Second command should not be a built-in in pipes */
         if (execvp(cmd2[0], cmd2) == -1) {
             fprintf(stderr, "Command not found: %s\n", cmd2[0]);
         }
@@ -195,9 +219,10 @@ int main(int argc, char *argv[]) {
             continue;
         }
         
+        /* Save original command */
         strcpy(input_copy, input);
         
-        /* Check for exit command early */
+        /* Check for exit command before parsing */
         if (strcmp(input, "exit") == 0) {
             should_run = 0;
             continue;
@@ -216,34 +241,25 @@ int main(int argc, char *argv[]) {
             continue;
         }
         
-        /* Check for history command AFTER parsing */
-        if (strcmp(args[0], "history") == 0) {
-            /* Check if history is part of a pipe */
-            int is_piped = 0;
-            for (int j = 0; args[j] != NULL; j++) {
-                if (strcmp(args[j], "|") == 0) {
-                    is_piped = 1;
-                    break;
-                }
-            }
-            
-            if (is_piped) {
-                fprintf(stderr, "Error: 'history' is a built-in command and cannot be used in pipes\n");
+        /* Check for pipe */
+        char **cmd1, **cmd2;
+        int is_pipe = has_pipe(args, &cmd1, &cmd2);
+        
+        /* Add to history ONLY if it's not a built-in command */
+        if (!is_builtin_for_history(args[0])) {
+            add_to_history(input_copy);
+        }
+        
+        if (is_pipe) {
+            /* Execute piped commands */
+            execute_pipe(cmd1, cmd2);
+        } else {
+            /* Check if it's history command without pipe */
+            if (strcmp(args[0], "history") == 0) {
+                display_history();
                 continue;
             }
             
-            display_history();
-            continue;
-        }
-        
-        /* Add to history (after checking it's not history command itself) */
-        add_to_history(input_copy);
-        
-        /* Check for pipe */
-        char **cmd1, **cmd2;
-        if (has_pipe(args, &cmd1, &cmd2)) {
-            execute_pipe(cmd1, cmd2);
-        } else {
             /* No pipe - regular execution */
             pid_t pid = fork();
             
