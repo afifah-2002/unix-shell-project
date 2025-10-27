@@ -165,6 +165,7 @@ void execute_command(char **args) {
     exit(1);
 }
 
+
 void execute_pipe(char **cmd1, char **cmd2) {
     int pipefd[2];
     pid_t pid1, pid2;
@@ -211,6 +212,20 @@ void execute_pipe(char **cmd1, char **cmd2) {
         close(pipefd[1]);
         dup2(pipefd[0], STDIN_FILENO);
         close(pipefd[0]);
+        
+        /* NEW: Check for output redirection in cmd2 */
+        char *output_file = NULL;
+        int redirect_output = has_output_redirection(cmd2, &output_file);
+        
+        if (redirect_output == 1) {
+            int fd = open(output_file, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+            if (fd < 0) {
+                fprintf(stderr, "Error: Cannot open output file '%s'\n", output_file);
+                exit(1);
+            }
+            dup2(fd, STDOUT_FILENO);
+            close(fd);
+        }
         
         /* Execute second command */
         if (execvp(cmd2[0], cmd2) == -1) {
