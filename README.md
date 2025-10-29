@@ -5,7 +5,7 @@ Project 1, Fall 2025
 
 ## Team Members
 - Afifah Khan (ID: 11800954)
-- [Team Member 2 Name]
+- Nanditha Aitha [ Id: 11759521]
 - [Team Member 3 Name]
 - [Team Member 4 Name]
 
