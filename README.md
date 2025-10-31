@@ -7,7 +7,7 @@ Project 1, Fall 2025
 - Afifah Khan (ID: 11800954)
 - Nanditha Aitha [ Id: 11759521]
 - Bhavana Bayyapu [ ID :11680072]
-- [Team Member 4 Name]
+- Deepika Thakur [ID: 11751906]
 
 ## Project Description
 Implementation of a Unix/Linux shell with the following features:
@@ -43,13 +43,5 @@ gcc -Wall -g shell.c -o myshell
 └── README.md          # This file
 ```
 
-## Status
-- [ ] Interactive mode
-- [ ] Batch mode
-- [ ] Command execution (fork/exec)
-- [ ] Input redirection
-- [ ] Output redirection
-- [ ] Pipe support
-- [ ] History feature
-```
+
 
