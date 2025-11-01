@@ -31,7 +31,7 @@ gcc -Wall -g shell.c -o myshell
 
 ### Batch Mode
 ```bash
-./myshell commands.txt
+./myshell test_commands.txt
 ```
 
 ## Project Structure
